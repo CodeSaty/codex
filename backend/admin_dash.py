@@ -4,9 +4,10 @@ from pymongo import MongoClient
 import certifi
 import time
 from bson.objectid import ObjectId
+import os
 
 # ─────────────── MongoDB Connection ───────────────
-MONGO_URI = "mongodb+srv://satyamguptaishere_db_user:8HlaDWsySl09f3sM@cluster0.shnt6yi.mongodb.net/?appName=Cluster0"
+MONGO_URI = os.environ["MONGO_URI"]
 client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client.traitor_game
 

@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cultura Festival | Dashboard</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="/theme.css">
+  <script src="/theme.js"></script>
+  
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            fest: {
+              rose: '#e11d48',
+              amber: '#d97706',
+              emerald: '#059669',
+              sky: '#0284c7',
+              stone: '#fafaf9',
+              dark: '#292524'
+            }
+          },
+          fontFamily: {
+            sans: ['Outfit', 'sans-serif'],
+            serif: ['"Playfair Display"', 'serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background-color: #f5f5f4; }
+    .glass-card {
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.6);
+      box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05);
+    }
+    .gradient-text {
+      background: linear-gradient(135deg, #e11d48, #d97706);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="min-h-screen text-fest-dark flex overflow-hidden selection:bg-fest-rose selection:text-white font-sans relative">
+
+  <!-- Soft animated background gradient -->
+  <div class="fixed inset-0 z-0 opacity-40 pointer-events-none" style="background: radial-gradient(circle at 10% 20%, rgba(225,29,72,0.1) 0%, transparent 40%), radial-gradient(circle at 90% 80%, rgba(217,119,6,0.1) 0%, transparent 40%);"></div>
+
+  <!-- SIDEBAR -->
+  <aside class="w-64 glass-card border-r border-stone-200 flex flex-col z-20 shrink-0 relative">
+    <div class="p-6 border-b border-stone-100 flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500 to-amber-500 flex items-center justify-center text-white shadow-md">
+        <i data-lucide="tent" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <h1 class="text-xl font-serif font-semibold tracking-wide text-fest-dark leading-tight">Cultura</h1>
+        <p class="text-[10px] text-stone-500 uppercase tracking-widest font-semibold">Festival Hub</p>
+      </div>
+    </div>
+    
+    <nav class="flex-1 p-4 space-y-2 mt-4 text-sm font-medium">
+      <a href="/" class="flex items-center gap-3 p-3 rounded-xl text-stone-500 hover:bg-stone-100 hover:text-fest-dark transition-colors">
+        <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
+        Dashboard
+      </a>
+      <a href="/analytics.html" class="flex items-center gap-3 p-3 rounded-xl text-stone-500 hover:bg-stone-100 hover:text-fest-dark transition-colors">
+        <i data-lucide="bar-chart-2" class="w-5 h-5"></i>
+        Insights
+      </a>
+      <a href="/attendees.html" class="flex items-center gap-3 p-3 rounded-xl bg-rose-50 text-fest-rose">
+        <i data-lucide="users" class="w-5 h-5"></i>
+        Guests
+      </a>
+      <a href="/settings.html" class="flex items-center gap-3 p-3 rounded-xl text-stone-500 hover:bg-stone-100 hover:text-fest-dark transition-colors">
+        <i data-lucide="settings" class="w-5 h-5"></i>
+        Operations
+      </a>
+    </nav>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="flex-1 flex flex-col relative z-10 h-screen overflow-hidden">
+    
+    <!-- TOP HEADER -->
+    <header class="h-20 glass-card border-b border-stone-200 flex items-center justify-between px-8 shrink-0">
+      
+      <!-- NLP Search Form -->
+      <form id="nlp-form" class="relative w-full max-w-2xl">
+        <div class="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-rose-500">
+          <i data-lucide="sparkles" class="w-5 h-5"></i>
+        </div>
+        <input type="text" id="nlp-input" class="w-full bg-white border border-stone-200 text-stone-700 text-sm rounded-xl focus:ring-2 focus:ring-rose-500 focus:border-rose-500 block pl-12 p-3 shadow-sm transition-all placeholder-stone-400" placeholder="Ask the Festival Assistant (e.g. 'How many guests at the Main Stage?')">
+        <button type="submit" class="absolute inset-y-1.5 right-1.5 px-4 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold tracking-wide transition-colors shadow-sm">
+          ASK
+        </button>
+      </form>
+      
+      <div class="flex items-center gap-4">
+        <div class="flex items-center gap-2 text-xs px-4 py-2 rounded-xl bg-white border border-stone-200 shadow-sm font-medium">
+           <span id="poll-indicator" class="w-2.5 h-2.5 rounded-full bg-stone-300 transition-all duration-300"></span>
+           <span class="text-stone-500">Live Sync:</span>
+           <span id="last-sync" class="text-emerald-600 font-semibold">00:00</span>
+        </div>
+      </div>
+    </header>
+
+    
+    <!-- ATTENDEES SCROLLABLE AREA -->
+    <div class="flex-1 overflow-y-auto p-8 no-scrollbar relative">
+      <div class="flex items-center justify-between mb-8">
+        <div>
+          <h2 class="text-2xl font-serif font-bold text-fest-dark">Guest Directory</h2>
+          <p class="text-stone-500 text-sm mt-1">Manage festival attendees and staff access.</p>
+        </div>
+        <button id="open-add-modal" class="flex items-center gap-2 px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold shadow-sm transition-colors text-sm">
+          <i data-lucide="plus" class="w-4 h-4"></i> Register Guest
+        </button>
+      </div>
+
+      <div class="glass-card rounded-2xl border border-stone-200 overflow-hidden">
+        <table class="w-full text-left text-sm text-stone-600">
+          <thead class="bg-stone-50 border-b border-stone-200 text-xs uppercase text-stone-500 font-bold">
+            <tr>
+              <th class="px-6 py-4">Name</th>
+              <th class="px-6 py-4">Role</th>
+              <th class="px-6 py-4">Ticket Type</th>
+              <th class="px-6 py-4">Engagement</th>
+              <th class="px-6 py-4 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="attendees-table-body" class="divide-y divide-stone-100">
+             <!-- Populated by JS -->
+             <tr><td colspan="5" class="px-6 py-8 text-center text-stone-400">Loading guests...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    
+    <!-- ADD ATTENDEE MODAL -->
+    <div id="add-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-300">
+      <div class="glass-card w-full max-w-md p-6 rounded-3xl border border-stone-200 relative shadow-2xl">
+        <div class="flex items-center justify-between mb-6">
+          <h2 class="text-xl font-bold text-fest-dark font-serif">Register New Guest</h2>
+          <button id="close-add-modal" class="p-2 text-stone-400 hover:text-stone-600 rounded-full hover:bg-stone-100"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+        <form id="add-attendee-form" class="space-y-4 font-medium text-sm">
+          <div>
+            <label class="block text-stone-600 mb-1">Full Name</label>
+            <input type="text" id="att-name" class="w-full border border-stone-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-rose-500 focus:outline-none" required>
+          </div>
+          <div>
+            <label class="block text-stone-600 mb-1">Role</label>
+            <select id="att-role" class="w-full border border-stone-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-rose-500 focus:outline-none bg-white">
+              <option value="General">General</option>
+              <option value="Early Bird">Early Bird</option>
+              <option value="VIP">VIP</option>
+              <option value="Organizer">Staff</option>
+              <option value="Sponsor">Sponsor</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-stone-600 mb-1">Ticket Type</label>
+            <input type="text" id="att-ticket" class="w-full border border-stone-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-rose-500 focus:outline-none" placeholder="e.g. GA, 3-Day Pass" required>
+          </div>
+          <button type="submit" id="star-portal-btn" class="w-full py-4 mt-4 relative overflow-hidden rounded-xl font-bold text-white shadow-xl group cursor-pointer border-none bg-stone-900 transition-all duration-300">
+            <canvas id="portal-canvas" class="absolute inset-0 w-full h-full pointer-events-none opacity-60 group-hover:opacity-100 transition-opacity duration-500"></canvas>
+            <span id="star-portal-btn-label" class="relative z-10 tracking-widest text-sm uppercase group-hover:text-cyan-200 transition-colors drop-shadow-md">Complete Registration</span>
+            <div class="absolute inset-0 border-2 border-cyan-500/0 group-hover:border-cyan-500/50 rounded-xl transition-all duration-500 pointer-events-none"></div>
+          </button>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      fetchAttendees();
+      
+      const modal = document.getElementById('add-modal');
+      document.getElementById('open-add-modal').addEventListener('click', () => {
+        modal.classList.remove('hidden');
+      });
+      document.getElementById('close-add-modal').addEventListener('click', () => {
+        modal.classList.add('hidden');
+      });
+      
+      document.getElementById('add-attendee-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('star-portal-btn');
+        const lbl = document.getElementById('star-portal-btn-label');
+        lbl.textContent = "Registering...";
+        btn.disabled = true;
+        
+        try {
+            const res = await fetch('/register_attendee', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: document.getElementById('att-name').value,
+                    role: document.getElementById('att-role').value,
+                    ticket_type: document.getElementById('att-ticket').value
+                })
+            });
+            if (res.ok) {
+                e.target.reset();
+                modal.classList.add('hidden');
+                fetchAttendees();
+            }
+        } catch(err) {
+            console.error(err);
+            alert("Error registering guest.");
+        }
+        lbl.textContent = "Complete Registration";
+        btn.disabled = false;
+      });
+    });
+
+    async function fetchAttendees() {
+      const tbody = document.getElementById('attendees-table-body');
+      try {
+        const res = await fetch('/api/admin/attendees', {
+            headers: { 'X-Admin-Key': localStorage.getItem('adminKey') || '' }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          tbody.innerHTML = '';
+          if (data.attendees.length === 0) {
+             tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-8 text-center text-stone-400">No guests found.</td></tr>';
+             return;
+          }
+          data.attendees.forEach(a => {
+            const roleCol = a.role === 'VIP' ? 'text-rose-600 bg-rose-50 border-rose-200' : 'text-stone-600 bg-stone-100 border-stone-200';
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td class="px-6 py-4 font-bold text-fest-dark flex items-center gap-3">
+                 <div class="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center text-xs text-stone-500">${a.name.substring(0,2).toUpperCase()}</div>
+                 ${a.name}
+              </td>
+              <td class="px-6 py-4"><span class="px-2.5 py-1 rounded-lg border text-xs font-bold ${roleCol}">${a.role}</span></td>
+              <td class="px-6 py-4">${a.ticket_type}</td>
+              <td class="px-6 py-4"><div class="flex items-center gap-1 text-emerald-600 font-bold"><i data-lucide="star" class="w-3.5 h-3.5"></i> ${a.engagement_score}</div></td>
+              <td class="px-6 py-4 text-right">
+                 <button onclick="deleteAttendee('${a._id}')" class="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+              </td>
+            `;
+            tbody.appendChild(tr);
+          });
+          lucide.createIcons();
+        }
+      } catch (err) {
+        tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-8 text-center text-rose-500">Error loading data</td></tr>';
+      }
+    }
+    
+    window.deleteAttendee = async function(id) {
+        if(!confirm("Are you sure you want to remove this guest?")) return;
+        try {
+            await fetch('/api/admin/delete_attendee/' + id, {
+                method: 'DELETE',
+                headers: { 'X-Admin-Key': localStorage.getItem('adminKey') || '' }
+            });
+            fetchAttendees();
+        } catch(err) {
+            console.error(err);
+        }
+    }
+    // === STAR PORTAL BUTTON LOGIC ===
+    const portalCanvas = document.getElementById('portal-canvas');
+    if (portalCanvas) {
+      const pCtx = portalCanvas.getContext('2d');
+      let stars = [];
+      let isPortalHovered = false;
+
+      function initPortal() {
+        portalCanvas.width = portalCanvas.offsetWidth || 300;
+        portalCanvas.height = portalCanvas.offsetHeight || 60;
+        stars = [];
+        for(let i=0; i<80; i++) {
+          stars.push({
+            x: Math.random() * portalCanvas.width - portalCanvas.width/2,
+            y: Math.random() * portalCanvas.height - portalCanvas.height/2,
+            z: Math.random() * portalCanvas.width
+          });
+        }
+      }
+
+      const portalBtn = document.getElementById('star-portal-btn');
+      portalBtn.addEventListener('mouseenter', () => isPortalHovered = true);
+      portalBtn.addEventListener('mouseleave', () => isPortalHovered = false);
+
+      let animationId = null;
+
+      function drawPortal() {
+        if (document.getElementById('add-modal').classList.contains('hidden')) {
+            animationId = null;
+            return;
+        }
+
+        pCtx.fillStyle = isPortalHovered ? '#0a0a0a' : '#1c1917';
+        pCtx.fillRect(0, 0, portalCanvas.width, portalCanvas.height);
+        
+        const cx = portalCanvas.width / 2;
+        const cy = portalCanvas.height / 2;
+        
+        pCtx.fillStyle = '#06b6d4';
+        
+        for(let i=0; i<stars.length; i++) {
+          let s = stars[i];
+          s.z -= isPortalHovered ? 12 : 1;
+          
+          if(s.z <= 0) {
+            s.x = Math.random() * portalCanvas.width - portalCanvas.width/2;
+            s.y = Math.random() * portalCanvas.height - portalCanvas.height/2;
+            s.z = portalCanvas.width;
+          }
+          
+          let k = 128.0 / s.z;
+          let px = s.x * k + cx;
+          let py = s.y * k + cy;
+          let size = (1 - s.z / portalCanvas.width) * (isPortalHovered ? 2.5 : 1.2);
+          
+          pCtx.beginPath();
+          pCtx.arc(px, py, size, 0, Math.PI*2);
+          pCtx.fill();
+          
+          if (isPortalHovered) {
+            let prevK = 128.0 / (s.z + 12);
+            let prevPx = s.x * prevK + cx;
+            let prevPy = s.y * prevK + cy;
+            pCtx.strokeStyle = `rgba(6, 182, 212, ${1 - s.z / portalCanvas.width})`;
+            pCtx.lineWidth = size;
+            pCtx.beginPath();
+            pCtx.moveTo(px, py);
+            pCtx.lineTo(prevPx, prevPy);
+            pCtx.stroke();
+          }
+        }
+        animationId = requestAnimationFrame(drawPortal);
+      }
+
+      document.getElementById('open-add-modal').addEventListener('click', () => {
+        setTimeout(() => {
+            initPortal();
+            if (!animationId) drawPortal();
+        }, 50);
+      });
+    }
+
+  </script>
+</body>
+</html>

@@ -1,81 +1,120 @@
 import os
 import uuid
-import random
-import math
+from datetime import datetime, timezone, timedelta
 from contextlib import asynccontextmanager
-from typing import Literal, List, Dict, Any
+from typing import Literal, get_args
 
 from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
+import asyncio
 import motor.motor_asyncio
 import certifi
 from bson.objectid import ObjectId
+from pymongo import ASCENDING, DESCENDING, ReturnDocument, UpdateOne
 
 # ─────────────────────── Security ───────────────────────
 
-ADMIN_ACCESS_KEY = "PROTOCOL_ZERO_DAY"
+ADMIN_ACCESS_KEY = os.getenv("ADMIN_KEY")
+if not ADMIN_ACCESS_KEY:
+    raise RuntimeError("ADMIN_KEY environment variable must be set")
 
 async def verify_admin(x_admin_key: str = Header(None)):
     if x_admin_key != ADMIN_ACCESS_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized Access")
 
 
+# ─────────────────────── Domain Constants ───────────────────────
+
+# The 5 demo zones for the universal command center product
+ZoneName = Literal["Main Stage", "Food Court", "Artisan Market", "Cultural Pavilion", "VIP Lounge"]
+ZONES: tuple[str, ...] = get_args(ZoneName)
+
+Role = Literal["General", "Early Bird", "VIP", "Organizer", "Sponsor"]
+
+SCAN_ENGAGEMENT_POINTS = 10
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 # ─────────────────────── Pydantic Models ───────────────────────
 
-class MemberInput(BaseModel):
+class Attendee(BaseModel):
+    """Document shape of the `attendees` collection."""
     name: str
-    roll_number: str
-    branch: str
-    course: str
-    study_year: str
-
-
-class RegisterTeamRequest(BaseModel):
-    team_name: str
-    members: list[MemberInput]
-
-
-class ScoreTaskRequest(BaseModel):
+    role: Role
+    ticket_type: str
+    engagement_score: int = 0
     qr_code_hash: str
-    stall_id: str
-    max_points: int
-    outcome: Literal["team_won", "traitor_won"]
+    registered_at: datetime
 
 
-class UpdateScoresRequest(BaseModel):
-    teammate_wallet: int
-    traitor_wallet: int
+class ZoneLog(BaseModel):
+    """Document shape of the `zone_logs` collection (one per checkpoint scan)."""
+    attendee_id: str
+    qr_code_hash: str
+    role: Role  # denormalised so zone/role aggregates need no $lookup
+    zone_name: ZoneName
+    timestamp: datetime  # stored as BSON Date for time-window queries
 
 
-class UpdateMembersRequest(BaseModel):
-    members: List[Dict[str, Any]]
+class NLPQueryRequest(BaseModel):
+    query: str
+
+
+class RegisterAttendeeRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    role: Role
+    ticket_type: str = Field(min_length=1, max_length=50)
+
+
+class ScanRequest(BaseModel):
+    qr_code_hash: str = Field(min_length=1)
+    zone_name: ZoneName
+
+
+def serialize(doc: dict) -> dict:
+    """Make a Mongo document JSON-safe."""
+    doc["_id"] = str(doc["_id"])
+    return doc
 
 
 # ─────────────────────── MongoDB Lifespan ───────────────────────
 
+# Shared with backend/seed.py.
+MONGO_URI = os.environ.get("MONGO_URI", "")
+DB_NAME = "codex"
+
 db_client: motor.motor_asyncio.AsyncIOMotorClient = None
 db = None
 
+def require_db():
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global db_client, db
-    MONGO_URI = "mongodb+srv://satyamguptaishere_db_user:8HlaDWsySl09f3sM@cluster0.shnt6yi.mongodb.net/?appName=Cluster0"
-    db_client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI, tlsCAFile=certifi.where())
-    db = db_client.traitor_game
-    # Verify connection
-    await db_client.admin.command("ping")
-    print("[OK] Connected to MongoDB Atlas - traitor_game")
+    if MONGO_URI:
+        try:
+            db_client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI, tlsCAFile=certifi.where(), serverSelectionTimeoutMS=2000)
+            db = db_client[DB_NAME]
+            # Verify connection asynchronously so it doesn't block startup if failing
+            asyncio.create_task(db_client.admin.command("ping"))
+        except Exception as e:
+            print(f"Failed to initialize MongoDB client: {e}")
     yield
-    db_client.close()
-    print("[--] MongoDB connection closed")
+    if db_client:
+        db_client.close()
+        print("[--] MongoDB connection closed")
 
 
 # ─────────────────────── FastAPI App ───────────────────────
 
-app = FastAPI(title="Traitor Scavenger Hunt", lifespan=lifespan)
+app = FastAPI(title="Codex Intelligent Event Command Center", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -88,108 +127,69 @@ app.add_middleware(
 
 # ─────────────────────── Endpoints ───────────────────────
 
-@app.post("/register_team")
-async def register_team(req: RegisterTeamRequest):
-    if len(req.members) < 2 or len(req.members) > 4:
-        raise HTTPException(status_code=400, detail="A team needs 2 to 4 members")
-
-    members = []
-    for m in req.members:
-        members.append({
-            "name": m.name,
-            "roll_number": m.roll_number,
-            "branch": m.branch,
-            "course": m.course,
-            "study_year": m.study_year,
-            "is_traitor": False,
-        })
-        
-    traitor_idx = random.randint(0, len(members) - 1)
-    members[traitor_idx]["is_traitor"] = True
-
-    qr_code_hash = uuid.uuid4().hex
-
-    team_doc = {
-        "team_name": req.team_name,
-        "qr_code_hash": qr_code_hash,
-        "teammate_wallet": 0,
-        "traitor_wallet": 0,
-        "members": members,
-    }
-
-    result = await db.teams.insert_one(team_doc)
-    team_doc["_id"] = str(result.inserted_id)
-
-    return {
-        "message": "Team registered successfully",
-        "team_name": team_doc["team_name"],
-        "qr_code_hash": qr_code_hash,
-        "members": members,
-    }
+@app.get("/zones")
+async def list_zones():
+    """Canonical Codex arena names (used by the field scanner's zone picker)."""
+    return {"zones": list(ZONES)}
 
 
-@app.get("/team/{qr_code_hash}")
-async def get_team(qr_code_hash: str):
-    team = await db.teams.find_one({"qr_code_hash": qr_code_hash})
-    if not team:
-        raise HTTPException(status_code=404, detail="Team not found")
-
-    # Explicitly strip is_traitor so coordinators cannot see who the traitor is
-    safe_members = [
-        {
-            "name": m["name"],
-            "roll_number": m.get("roll_number", "N/A"),
-            "branch": m.get("branch", "N/A"),
-            "course": m.get("course", "N/A"),
-            "study_year": m.get("study_year", "N/A"),
-        }
-        for m in team["members"]
-    ]
-
-    return {
-        "team_name": team["team_name"],
-        "teammate_wallet": team["teammate_wallet"],
-        "traitor_wallet": team["traitor_wallet"],
-        "members": safe_members,
-    }
-
-
-@app.post("/score_task")
-async def score_task(req: ScoreTaskRequest):
-    team = await db.teams.find_one({"qr_code_hash": req.qr_code_hash})
-    if not team:
-        raise HTTPException(status_code=404, detail="Team not found")
-
-    if req.outcome == "team_won":
-        points = req.max_points
-        wallet_field = "teammate_wallet"
-        winner = "team"
-    else:
-        points = int(math.floor(req.max_points * 0.75))
-        wallet_field = "traitor_wallet"
-        winner = "traitor"
-
-    # Update the wallet
-    await db.teams.update_one(
-        {"qr_code_hash": req.qr_code_hash},
-        {"$inc": {wallet_field: points}},
+@app.post("/register_attendee", status_code=201)
+async def register_attendee(req: RegisterAttendeeRequest):
+    require_db()
+    attendee = Attendee(
+        name=req.name.strip(),
+        role=req.role,
+        ticket_type=req.ticket_type.strip(),
+        qr_code_hash=uuid.uuid4().hex,
+        registered_at=utcnow(),
     )
-
-    # Log the transaction
-    await db.transactions.insert_one({
-        "qr_code_hash": req.qr_code_hash,
-        "stall_id": req.stall_id,
-        "winner": winner,
-        "points_awarded": points,
-    })
-
-    # Fetch updated balances
-    updated = await db.teams.find_one({"qr_code_hash": req.qr_code_hash})
+    doc = attendee.model_dump()
+    result = await db.attendees.insert_one(doc)
+    doc["_id"] = result.inserted_id
 
     return {
-        "message": f"{winner.title()} scored {points} points!",
-        "teammate_wallet": updated["teammate_wallet"],
-        "traitor_wallet": updated["traitor_wallet"],
+        "message": "Attendee registered successfully",
+        "qr_code_hash": attendee.qr_code_hash,
+        "attendee": serialize(doc),
+    }
+
+
+@app.get("/attendee/{qr_code_hash}")
+async def get_attendee(qr_code_hash: str):
+    require_db()
+    attendee = await db.attendees.find_one({"qr_code_hash": qr_code_hash})
+    if not attendee:
+        raise HTTPException(status_code=404, detail="Attendee not found")
+    return serialize(attendee)
+
+
+@app.post("/scan", status_code=201)
+async def scan_attendee(req: ScanRequest):
+    """Log an attendee checkpoint movement into a Codex zone."""
+    # Atomic lookup + engagement bump in a single round trip
+    attendee = await db.attendees.find_one_and_update(
+        {"qr_code_hash": req.qr_code_hash},
+        {"$inc": {"engagement_score": SCAN_ENGAGEMENT_POINTS}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not attendee:
+        raise HTTPException(status_code=404, detail="Attendee not found")
+
+    log = ZoneLog(
+        attendee_id=str(attendee["_id"]),
+        qr_code_hash=req.qr_code_hash,
+        role=attendee["role"],
+        zone_name=req.zone_name,
+        timestamp=utcnow(),
+    )
+    log_doc = log.model_dump()
+    result = await db.zone_logs.insert_one(log_doc)
+    log_doc["_id"] = result.inserted_id
+
+    return {
+        "message": f"Scan logged at {req.zone_name}!",
+        "attendee": serialize(attendee),
+        "zone_log": serialize(log_doc),
     }
 
 
@@ -197,109 +197,212 @@ async def score_task(req: ScoreTaskRequest):
 
 @app.get("/api/admin/stats", dependencies=[Depends(verify_admin)])
 async def admin_get_stats():
-    """Returns aggregated team stats and transaction logs for the HTML dashboard."""
-    teams = []
-    async for t in db.teams.find():
-        tw = t.get("teammate_wallet", 0)
-        trw = t.get("traitor_wallet", 0)
-        total_score = tw + trw
-        status = "Traitor Leading (Sabotage Active)" if trw > tw else "Team Leading"
+    """Returns aggregated zone stats for the HTML dashboard with bottleneck detection."""
+    require_db()
+    total_attendees = await db.attendees.count_documents({})
+    
+    eng_cursor = db.attendees.aggregate([{"$group": {"_id": None, "total": {"$sum": "$engagement_score"}}}])
+    eng_doc = await eng_cursor.to_list(length=1)
+    total_engagement = eng_doc[0]["total"] if eng_doc else 0
+
+    ten_mins_ago = utcnow() - timedelta(minutes=10)
+    
+    # 1. Get recent scans (last 10 minutes) per zone for Bottleneck Detection
+    recent_counts = {}
+    async for doc in db.zone_logs.aggregate([
+        {"$match": {"timestamp": {"$gte": ten_mins_ago}}},
+        {"$group": {"_id": "$zone_name", "count": {"$sum": 1}}}
+    ]):
+        recent_counts[doc["_id"]] = doc["count"]
+
+    # 2. Get total scans per zone (for overall stats)
+    total_counts = {}
+    async for doc in db.zone_logs.aggregate([
+        {"$group": {"_id": "$zone_name", "count": {"$sum": 1}}}
+    ]):
+        total_counts[doc["_id"]] = doc["count"]
         
-        teams.append({
-            "id": str(t["_id"]),
-            "team_name": t.get("team_name", "Unknown"),
-            "qr_code_hash": t.get("qr_code_hash", ""),
-            "teammate_wallet": tw,
-            "traitor_wallet": trw,
-            "total_score": total_score,
-            "status": status,
-            "members": t.get("members", [])
+    zones_stats = []
+    for zone in ZONES:
+        recent = recent_counts.get(zone, 0)
+        total = total_counts.get(zone, 0)
+        
+        # Bottleneck detection: >150 scans in 10 minutes
+        capacity_warning = recent > 150
+        
+        zones_stats.append({
+            "zone_name": zone,
+            "total_scans": total,
+            "recent_scans": recent,
+            "capacity_warning": capacity_warning
         })
 
-    teams.sort(key=lambda x: x["total_score"], reverse=True)
-    
-    txns = []
-    async for tx in db.transactions.find().sort("_id", -1).limit(20):
-        tx["_id"] = str(tx["_id"])
-        team = next((t for t in teams if t["qr_code_hash"] == tx.get("qr_code_hash")), None)
-        tx["team_name"] = team["team_name"] if team else "Unknown"
-        txns.append(tx)
+    # Fetch 20 latest logs for the activity feed, joined with attendee name
+    logs = []
+    async for log in db.zone_logs.aggregate([
+        {"$sort": {"timestamp": DESCENDING}},
+        {"$limit": 20},
+        {"$addFields": {"aid": {"$toObjectId": "$attendee_id"}}},
+        {"$lookup": {"from": "attendees", "localField": "aid", "foreignField": "_id", "as": "a"}},
+        {"$unwind": {"path": "$a", "preserveNullAndEmptyArrays": True}}
+    ]):
+        logs.append({
+            "id": str(log["_id"]),
+            "zone_name": log.get("zone_name"),
+            "timestamp": log.get("timestamp").isoformat() if log.get("timestamp") else None,
+            "attendee_name": log.get("a", {}).get("name", "Unknown"),
+            "role": log.get("role")
+        })
         
     return {
-        "teams": teams,
-        "transactions": txns,
-        "total_teams": len(teams),
-        "total_points": sum(t["total_score"] for t in teams),
-        "active_traitor_wins": sum(1 for t in teams if t["traitor_wallet"] > t["teammate_wallet"])
+        "zones": zones_stats,
+        "recent_logs": logs,
+        "total_attendees": total_attendees,
+        "total_engagement": total_engagement,
     }
 
 
-@app.post("/api/admin/assign_traitors", dependencies=[Depends(verify_admin)])
-async def admin_assign_traitors():
-    """Assigns exactly one traitor per team randomly."""
-    teams = []
-    async for t in db.teams.find():
-        teams.append(t)
+from typing import Optional
+
+class ThrottleZoneRequest(BaseModel):
+    zone_name: ZoneName
+    target_zone: Optional[ZoneName] = None
+
+    @model_validator(mode='after')
+    def check_differ(self):
+        if self.target_zone == self.zone_name:
+            raise ValueError("target_zone must differ from zone_name")
+        return self
+
+@app.post("/api/admin/throttle_zone", dependencies=[Depends(verify_admin)])
+async def admin_throttle_zone(req: ThrottleZoneRequest):
+    """Simulates diverting crowd flow for a zone by reassigning recent scans to other zones."""
+    require_db()
+    import random
     
-    updated_count = 0
-    for team in teams:
-        members = team.get("members", [])
-        if not members:
-            continue
-            
-        for m in members:
-            m["is_traitor"] = False
-            
-        traitor_idx = random.randint(0, len(members) - 1)
-        members[traitor_idx]["is_traitor"] = True
+    # 1. Select only recent scans and sort newest-first
+    ten_mins_ago = utcnow() - timedelta(minutes=10)
+    cursor = db.zone_logs.find(
+        {"zone_name": req.zone_name, "timestamp": {"$gte": ten_mins_ago}}
+    ).sort("timestamp", DESCENDING).limit(150)
+    
+    logs_to_move = await cursor.to_list(length=150)
+    if not logs_to_move:
+        return {"message": f"No active attendees found in {req.zone_name}."}
         
-        await db.teams.update_one(
-            {"_id": team["_id"]},
-            {"$set": {"members": members}}
-        )
-        updated_count += 1
+    other_zones = [z for z in ZONES if z != req.zone_name]
+    
+    # 2. Use bulk_write with UpdateOne
+    operations = []
+    for log in logs_to_move:
+        target_zone = req.target_zone if req.target_zone in ZONES else random.choice(other_zones)
+        operations.append(UpdateOne({"_id": log["_id"]}, {"$set": {"zone_name": target_zone}}))
         
-    return {"message": f"Assigned traitors for {updated_count} teams."}
-
-
-@app.post("/api/admin/update_scores/{team_id}", dependencies=[Depends(verify_admin)])
-async def admin_update_scores(team_id: str, req: UpdateScoresRequest):
-    """Override a team's scores."""
-    result = await db.teams.update_one(
-        {"_id": ObjectId(team_id)},
-        {"$set": {"teammate_wallet": req.teammate_wallet, "traitor_wallet": req.traitor_wallet}}
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Team not found")
-    return {"message": "Yields successfully updated."}
-
-
-@app.post("/api/admin/update_members/{team_id}", dependencies=[Depends(verify_admin)])
-async def admin_update_members(team_id: str, req: UpdateMembersRequest):
-    """Override a team's operatives."""
-    # Ensure is_traitor is boolean
-    clean_members = []
-    for m in req.members:
-        m["is_traitor"] = bool(m.get("is_traitor", False))
-        clean_members.append(m)
+    result = await db.zone_logs.bulk_write(operations)
+    updates_made = result.modified_count
         
-    result = await db.teams.update_one(
-        {"_id": ObjectId(team_id)},
-        {"$set": {"members": clean_members}}
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Team not found")
-    return {"message": "Operatives successfully updated."}
+    dest_str = req.target_zone if req.target_zone in ZONES else "other zones"
+    return {"message": f"SUCCESS! Diverted {updates_made} attendees from {req.zone_name} to {dest_str}."}
 
 
-@app.post("/api/admin/delete_team/{team_id}", dependencies=[Depends(verify_admin)])
-async def admin_delete_team(team_id: str):
-    """Permanently delete a team."""
-    result = await db.teams.delete_one({"_id": ObjectId(team_id)})
+@app.delete("/api/admin/delete_attendee/{attendee_id}", dependencies=[Depends(verify_admin)])
+async def admin_delete_attendee(attendee_id: str):
+    """Permanently delete an attendee."""
+    require_db()
+    result = await db.attendees.delete_one({"_id": ObjectId(attendee_id)})
     if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Team not found")
-    return {"message": "Syndicate terminated permanently."}
+        raise HTTPException(status_code=404, detail="Attendee not found")
+    return {"message": "Attendee deleted permanently."}
 
+
+@app.get("/api/admin/attendees", dependencies=[Depends(verify_admin)])
+async def admin_get_attendees():
+    """Returns a list of all registered attendees."""
+    require_db()
+    attendees = []
+    async for doc in db.attendees.find().sort("registered_at", DESCENDING):
+        attendees.append(serialize(doc))
+    return {"attendees": attendees}
+
+
+
+@app.post("/api/admin/nlp_query", dependencies=[Depends(verify_admin)])
+async def admin_nlp_query(req: NLPQueryRequest):
+    """Translates a natural language string into a MongoDB aggregate query."""
+    require_db()
+    import re
+    q = req.query.lower()
+
+    # 1. Extract Roles using simple NLP matching
+    roles = []
+    for r in get_args(Role):
+        # Match word boundaries to prevent "VIP" matching inside a word, etc.
+        # Plurals like VIPs or Hackers are handled by optional 's?'
+        if re.search(r"\b" + r.lower() + r"s?\b", q):
+            roles.append(r)
+
+    # 2. Extract Zones
+    zones = []
+    for z in ZONES:
+        if z.lower() in q:
+            zones.append(z)
+
+    # Build the match stage
+    match_stage = {}
+    if roles:
+        match_stage["role"] = {"$in": roles} if len(roles) > 1 else roles[0]
+    if zones:
+        match_stage["zone_name"] = {"$in": zones} if len(zones) > 1 else zones[0]
+
+    # Assume we're looking for a count of scans if terms match
+    # Could expand to look for attendees vs scans based on keywords (e.g. "scans" vs "attendees")
+    collection_name = "zone_logs"
+    pipeline = []
+    if match_stage:
+        pipeline.append({"$match": match_stage})
+
+    # Differentiate between unique attendees and total scans
+    if "unique" in q or "attendee" in q or "person" in q or "people" in q:
+        pipeline.append({"$group": {"_id": "$attendee_id"}})
+        pipeline.append({"$count": "result"})
+        target = "unique attendees"
+    else:
+        pipeline.append({"$count": "result"})
+        target = "scans"
+
+    cursor = db[collection_name].aggregate(pipeline)
+    docs = await cursor.to_list(length=1)
+    result_count = docs[0]["result"] if docs else 0
+
+    role_str = " or ".join(roles) if roles else "All roles"
+    zone_str = " or ".join(zones) if zones else "All zones"
+    answer = f"Found {result_count:,} {target} matching ({role_str} in {zone_str})."
+
+    return {
+        "query": req.query,
+        "pipeline": pipeline,
+        "response": answer,
+        "result_count": result_count
+    }
+
+
+@app.post("/api/admin/config", dependencies=[Depends(verify_admin)])
+async def admin_config(req: dict):
+    global db_client, db
+    uri = req.get("mongo_uri")
+    if uri:
+        try:
+            client = motor.motor_asyncio.AsyncIOMotorClient(uri, tlsCAFile=certifi.where(), serverSelectionTimeoutMS=2000)
+            await client.admin.command("ping")
+            old_client = db_client
+            db_client = client
+            db = db_client[DB_NAME]
+            if old_client:
+                old_client.close()
+            return {"message": "Connected to MongoDB successfully."}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Database connection failed: {str(e)}")
+    return {"message": "No URI provided."}
 
 # ─────────────────────── Static Files (must be last) ───────────────────────
 
