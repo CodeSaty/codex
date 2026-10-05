@@ -19,10 +19,3 @@ This is the backend and frontend for the live festival crowd-management dashboar
 3. **Access the Application:**
    Open your browser and navigate to `http://localhost:8000`
 
-## Important Credentials
-
-If you need to enter these manually into the **Operations Panel** in the UI, here are the keys:
-
-- **Admin Security Key:** `TEST-KEY`
-- **MongoDB URI:** `mongodb+srv://satyamguptaishere_db_user:THISISSATYAM@cluster0.shnt6yi.mongodb.net/?appName=Cluster0`
-- **Weather API Key:** `5b5df6c60b8497ce8c6fac8b923e78a5`
