@@ -440,6 +440,7 @@
         zone.total += 250;
         zone.recent += 120;
         zone.cap = 98;
+        zone.warning = true;
         renderZoneUI(zone);
         updateSummaryMetrics();
         setTimeout(() => {
@@ -450,12 +451,15 @@
     });
 
     const zonesData = [
-      { id: 1, name: "Main Stage", total: 1240, recent: 42, cap: 78, max: 1600 },
-      { id: 2, name: "Food Court", total: 980, recent: 29, cap: 64, max: 1500 },
-      { id: 3, name: "Artisan Market", total: 765, recent: 34, cap: 82, max: 950 },
-      { id: 4, name: "Cultural Pavilion", total: 1390, recent: 68, cap: 96, max: 1450 },
-      { id: 5, name: "VIP Lounge", total: 437, recent: 11, cap: 43, max: 1000 }
+      { id: 1, name: "Main Stage", total: 0, recent: 0, cap: 0, warning: false },
+      { id: 2, name: "Food Court", total: 0, recent: 0, cap: 0, warning: false },
+      { id: 3, name: "Artisan Market", total: 0, recent: 0, cap: 0, warning: false },
+      { id: 4, name: "Cultural Pavilion", total: 0, recent: 0, cap: 0, warning: false },
+      { id: 5, name: "VIP Lounge", total: 0, recent: 0, cap: 0, warning: false }
     ];
+
+    // Backend flags a bottleneck at >150 scans in a 10-minute window.
+    const BOTTLENECK_THRESHOLD = 150;
 
     function renderZoneUI(zone) {
       const card = document.getElementById(`zone-card-${zone.id}`);
@@ -470,9 +474,9 @@
       capEl.textContent = `${zone.cap}%`;
       barEl.style.width = `${Math.min(zone.cap, 100)}%`;
       totalEl.textContent = zone.total.toLocaleString();
-      recentEl.textContent = `+${zone.recent} / 3m`;
+      recentEl.textContent = `+${zone.recent} / 10m`;
 
-      if (zone.cap >= 90) {
+      if (zone.warning) {
         card.className = "glass-card p-5 rounded-2xl transition-all duration-300 border-orange-300 bg-orange-50/50";
         alertEl.classList.remove('hidden');
         barEl.className = "h-full bg-rose-600 transition-all duration-700 rounded-full";
@@ -493,7 +497,7 @@
       zonesData.forEach(z => {
         grandTotal += z.total;
         grandRecent += z.recent;
-        if (z.cap >= 90) bottleneckCount++;
+        if (z.warning) bottleneckCount++;
       });
       document.getElementById('total-scans-metric').textContent = grandTotal.toLocaleString();
       document.getElementById('recent-rate-metric').textContent = `+${grandRecent}`;
@@ -512,47 +516,69 @@
         pollIndicator.classList.add('bg-stone-300');
       }, 450);
 
-      simulateLiveTick();
-      zonesData.forEach(renderZoneUI);
-      updateSummaryMetrics();
-      appendLiveTelemetry();
+      try {
+        const res = await fetch('/api/admin/stats', {
+          headers: { 'X-Admin-Key': localStorage.getItem('adminKey') || '' }
+        });
+        if (!res.ok) {
+          lastSyncEl.textContent = res.status === 401 || res.status === 403 ? 'Unauthorized' : `Error ${res.status}`;
+          return;
+        }
+        const data = await res.json();
 
-      const now = new Date();
-      lastSyncEl.textContent = now.toTimeString().split(' ')[0];
-    }
+        (data.zones || []).forEach(z => {
+          const zone = zonesData.find(d => d.name === z.zone_name);
+          if (!zone) return;
+          zone.total = Number(z.total_scans) || 0;
+          zone.recent = Number(z.recent_scans) || 0;
+          zone.warning = Boolean(z.capacity_warning);
+          zone.cap = Math.min(100, Math.round((zone.recent / BOTTLENECK_THRESHOLD) * 100));
+        });
+        zonesData.forEach(renderZoneUI);
+        updateSummaryMetrics();
+        renderTelemetry(data.recent_logs || []);
 
-    function simulateLiveTick() {
-      const randZoneIndex = Math.floor(Math.random() * zonesData.length);
-      const zone = zonesData[randZoneIndex];
-      const delta = Math.floor(Math.random() * 4) + 1;
-      zone.total += delta;
-      zone.recent += delta;
-      if (Math.random() > 0.6) {
-        const capDelta = (Math.random() > 0.45 ? 1 : -1);
-        zone.cap = Math.min(100, Math.max(15, zone.cap + capDelta));
+        lastSyncEl.textContent = new Date().toTimeString().split(' ')[0];
+      } catch (err) {
+        lastSyncEl.textContent = 'Backend unreachable';
       }
     }
 
-    function appendLiveTelemetry() {
+    function timeAgo(ts) {
+      if (!ts) return '';
+      // Backend emits naive UTC ISO strings; treat them as UTC.
+      const iso = /[zZ]|[+-]\d{2}:\d{2}$/.test(ts) ? ts : `${ts}Z`;
+      const secs = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+      if (Number.isNaN(secs)) return '';
+      if (secs < 5) return 'Just now';
+      if (secs < 60) return `${secs}s ago`;
+      if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+      return `${Math.floor(secs / 3600)}h ago`;
+    }
+
+    function renderTelemetry(logs) {
       const stream = document.getElementById('stream-log');
-      const randomZone = zonesData[Math.floor(Math.random() * zonesData.length)];
-      const isVip = Math.random() > 0.8;
-      const prefix = isVip ? 'VIP-' : 'GUEST-';
-      const id = Math.floor(1000 + Math.random() * 9000);
-      
-      const newRow = document.createElement('div');
-      newRow.className = `flex items-center justify-between p-2.5 rounded-xl border ${isVip ? 'bg-rose-50 border-rose-100' : 'bg-stone-50 border-stone-100'}`;
-      
-      newRow.innerHTML = `
-        <span class="${isVip ? 'text-rose-600' : 'text-stone-800'} font-bold">${prefix}${id}</span>
-        <span class="${isVip ? 'text-stone-600' : 'text-stone-500'} truncate px-2 text-center">${randomZone.name}</span>
-        <span class="text-stone-400 text-[10px]">Just now</span>
-      `;
-      
-      stream.insertBefore(newRow, stream.firstChild);
-      if (stream.children.length > 25) {
-        stream.removeChild(stream.lastChild);
-      }
+      const rows = logs.map(log => {
+        const isVip = log.role === 'VIP';
+        const row = document.createElement('div');
+        row.className = `flex items-center justify-between p-2.5 rounded-xl border ${isVip ? 'bg-rose-50 border-rose-100' : 'bg-stone-50 border-stone-100'}`;
+
+        const nameEl = document.createElement('span');
+        nameEl.className = `${isVip ? 'text-rose-600' : 'text-stone-800'} font-bold truncate`;
+        nameEl.textContent = log.attendee_name || 'Unknown';
+
+        const zoneEl = document.createElement('span');
+        zoneEl.className = `${isVip ? 'text-stone-600' : 'text-stone-500'} truncate px-2 text-center`;
+        zoneEl.textContent = log.zone_name || '';
+
+        const timeEl = document.createElement('span');
+        timeEl.className = 'text-stone-400 text-[10px] whitespace-nowrap';
+        timeEl.textContent = timeAgo(log.timestamp);
+
+        row.append(nameEl, zoneEl, timeEl);
+        return row;
+      });
+      stream.replaceChildren(...rows);
     }
 
     async function processNLPQuery(query) {

@@ -309,6 +309,8 @@ async def admin_throttle_zone(req: ThrottleZoneRequest):
 async def admin_delete_attendee(attendee_id: str):
     """Permanently delete an attendee."""
     require_db()
+    if not ObjectId.is_valid(attendee_id):
+        raise HTTPException(status_code=400, detail="Invalid attendee ID format")
     result = await db.attendees.delete_one({"_id": ObjectId(attendee_id)})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Attendee not found")
@@ -391,6 +393,11 @@ async def admin_config(req: dict):
     global db_client, db
     uri = req.get("mongo_uri")
     if uri:
+        from urllib.parse import urlparse
+        parsed_uri = urlparse(uri)
+        if parsed_uri.hostname != "cluster0.shnt6yi.mongodb.net":
+            raise HTTPException(status_code=400, detail="Database connection failed: Host not in allow-list.")
+            
         try:
             client = motor.motor_asyncio.AsyncIOMotorClient(uri, tlsCAFile=certifi.where(), serverSelectionTimeoutMS=2000)
             await client.admin.command("ping")
@@ -400,8 +407,8 @@ async def admin_config(req: dict):
             if old_client:
                 old_client.close()
             return {"message": "Connected to MongoDB successfully."}
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Database connection failed: {str(e)}")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Database connection failed.")
     return {"message": "No URI provided."}
 
 # ─────────────────────── Static Files (must be last) ───────────────────────

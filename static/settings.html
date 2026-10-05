@@ -199,14 +199,14 @@
       const weatherInput = document.getElementById('weather-api-input');
 
       keyInput.value = localStorage.getItem('adminKey') || '';
-      mongoInput.value = localStorage.getItem('mongoUri') || '';
+      // Never persist the MongoDB URI in browser storage; purge any legacy copy.
+      localStorage.removeItem('mongoUri');
       weatherInput.value = localStorage.getItem('weatherKey') || '';
       
       document.getElementById('save-settings-btn').addEventListener('click', async () => {
         const btn = document.getElementById('save-settings-btn');
         btn.textContent = "Saving...";
         localStorage.setItem('adminKey', keyInput.value);
-        localStorage.setItem('mongoUri', mongoInput.value);
         localStorage.setItem('weatherKey', weatherInput.value);
         
         if (mongoInput.value) {
@@ -216,7 +216,10 @@
                     headers: { 'Content-Type': 'application/json', 'X-Admin-Key': keyInput.value },
                     body: JSON.stringify({ mongo_uri: mongoInput.value })
                 });
-                if (res.ok) alert('Settings & DB Connection saved successfully!');
+                if (res.ok) {
+                    mongoInput.value = '';
+                    alert('Settings & DB Connection saved successfully!');
+                }
                 else alert('Settings saved, but DB Connection failed.');
             } catch (err) {
                 alert('Settings saved. Backend unreachable.');

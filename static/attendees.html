@@ -217,6 +217,8 @@
                 e.target.reset();
                 modal.classList.add('hidden');
                 fetchAttendees();
+            } else {
+                alert("Server returned an error. Registration failed.");
             }
         } catch(err) {
             console.error(err);
@@ -245,16 +247,22 @@
             const tr = document.createElement('tr');
             tr.innerHTML = `
               <td class="px-6 py-4 font-bold text-fest-dark flex items-center gap-3">
-                 <div class="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center text-xs text-stone-500">${a.name.substring(0,2).toUpperCase()}</div>
-                 ${a.name}
+                 <div class="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center text-xs text-stone-500 init-circle"></div>
+                 <span class="name-span"></span>
               </td>
-              <td class="px-6 py-4"><span class="px-2.5 py-1 rounded-lg border text-xs font-bold ${roleCol}">${a.role}</span></td>
-              <td class="px-6 py-4">${a.ticket_type}</td>
-              <td class="px-6 py-4"><div class="flex items-center gap-1 text-emerald-600 font-bold"><i data-lucide="star" class="w-3.5 h-3.5"></i> ${a.engagement_score}</div></td>
+              <td class="px-6 py-4"><span class="px-2.5 py-1 rounded-lg border text-xs font-bold ${roleCol} role-span"></span></td>
+              <td class="px-6 py-4 ticket-td"></td>
+              <td class="px-6 py-4"><div class="flex items-center gap-1 text-emerald-600 font-bold"><i data-lucide="star" class="w-3.5 h-3.5"></i> <span class="score-span"></span></div></td>
               <td class="px-6 py-4 text-right">
-                 <button onclick="deleteAttendee('${a._id}')" class="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                 <button class="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors delete-btn"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
               </td>
             `;
+            tr.querySelector('.init-circle').textContent = (a.name || '').substring(0,2).toUpperCase();
+            tr.querySelector('.name-span').textContent = a.name;
+            tr.querySelector('.role-span').textContent = a.role;
+            tr.querySelector('.ticket-td').textContent = a.ticket_type;
+            tr.querySelector('.score-span').textContent = a.engagement_score;
+            tr.querySelector('.delete-btn').onclick = () => deleteAttendee(a._id);
             tbody.appendChild(tr);
           });
           lucide.createIcons();

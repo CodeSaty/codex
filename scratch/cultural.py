@@ -588,45 +588,5 @@ html_content = """<!DOCTYPE html>
 </html>
 """
 
-with open("static/index.html", "w", encoding="utf-8") as f:
-    f.write(html_content)
-
-# Update the other pages
-pages = ["analytics.html", "attendees.html", "settings.html"]
-page_titles = ["Festival Insights", "Guest Directory", "Operations Settings"]
-page_icons = ["bar-chart-2", "users", "settings"]
-
-for p, title, icon in zip(pages, page_titles, page_icons):
-    placeholder = html_content.replace(
-      '<a href="/" class="flex items-center gap-3 p-3 rounded-xl bg-rose-50 text-fest-rose">',
-      '<a href="/" class="flex items-center gap-3 p-3 rounded-xl text-stone-500 hover:bg-stone-100 hover:text-fest-dark transition-colors">'
-    ).replace(
-      f'<a href="/{p}" class="flex items-center gap-3 p-3 rounded-xl text-stone-500 hover:bg-stone-100 hover:text-fest-dark transition-colors">',
-      f'<a href="/{p}" class="flex items-center gap-3 p-3 rounded-xl bg-rose-50 text-fest-rose">'
-    )
-    
-    # Replace main content
-    main_split_start = placeholder.find('<!-- METRICS GRID -->')
-    main_split_end = placeholder.find('</main>')
-    
-    empty_state = f"""
-    <div class="flex-1 flex items-center justify-center h-full pb-20">
-        <div class="text-center p-10 glass-card rounded-2xl max-w-lg border border-stone-200">
-            <div class="w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-6 text-rose-500">
-                <i data-lucide="{icon}" class="w-10 h-10"></i>
-            </div>
-            <h2 class="text-2xl font-serif font-bold text-fest-dark mb-3">{title}</h2>
-            <p class="text-stone-500 text-sm mb-8">This module is part of the Cultura Festival Hub. Full integration is pending the next platform update.</p>
-            <a href="/" class="inline-flex items-center gap-2 px-6 py-3 bg-fest-dark text-white rounded-xl font-medium text-sm hover:bg-stone-800 transition-colors">
-                <i data-lucide="arrow-left" class="w-4 h-4"></i> Return to Dashboard
-            </a>
-        </div>
-    </div>
-    """
-    
-    final_page = placeholder[:main_split_start] + empty_state + placeholder[main_split_end:]
-    
-    with open(f"static/{p}", "w", encoding="utf-8") as f:
-        f.write(final_page)
-
-print("Refactor complete")
+# The generator writes have been removed to prevent accidentally overwriting the shipped pages.
+print("Scratch generator disabled.")
