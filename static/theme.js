@@ -48,9 +48,11 @@
     bgLoading = import('/structure-flow.js')
       .then((m) => {
         bgInstance = m.createStructureFlow(bgHost, { speed: 1, density: 1 });
-        // Re-read the theme: it may have changed while the module was loading.
-        if (bgInstance.setTheme) bgInstance.setTheme(root.classList.contains('dark'));
-        bgInstance.start();
+        const isDarkNow = root.classList.contains('dark');
+        if (bgInstance.setTheme) bgInstance.setTheme(isDarkNow);
+        if (isDarkNow) {
+          bgInstance.start();
+        }
       })
       .catch((err) => console.warn('[theme] Structure Flow background unavailable:', err))
       .finally(() => { bgLoading = null; });

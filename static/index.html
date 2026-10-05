@@ -183,7 +183,7 @@
                 </div>
                 <div class="text-right">
                   <span class="text-lg text-rose-600 font-bold" id="zone-1-capacity">78%</span>
-                  <span class="text-[10px] text-stone-400 block uppercase font-bold mt-0.5">Capacity</span>
+                  <span class="text-[10px] text-stone-400 block uppercase font-bold mt-0.5">10m Limit</span>
                 </div>
               </div>
               <div class="w-full bg-stone-100 h-2.5 rounded-full my-4 overflow-hidden">
@@ -217,7 +217,7 @@
                 </div>
                 <div class="text-right">
                   <span class="text-lg text-amber-500 font-bold" id="zone-2-capacity">64%</span>
-                  <span class="text-[10px] text-stone-400 block uppercase font-bold mt-0.5">Capacity</span>
+                  <span class="text-[10px] text-stone-400 block uppercase font-bold mt-0.5">10m Limit</span>
                 </div>
               </div>
               <div class="w-full bg-stone-100 h-2.5 rounded-full my-4 overflow-hidden">
@@ -251,7 +251,7 @@
                 </div>
                 <div class="text-right">
                   <span class="text-lg text-sky-500 font-bold" id="zone-3-capacity">82%</span>
-                  <span class="text-[10px] text-stone-400 block uppercase font-bold mt-0.5">Capacity</span>
+                  <span class="text-[10px] text-stone-400 block uppercase font-bold mt-0.5">10m Limit</span>
                 </div>
               </div>
               <div class="w-full bg-stone-100 h-2.5 rounded-full my-4 overflow-hidden">
@@ -285,7 +285,7 @@
                 </div>
                 <div class="text-right">
                   <span class="text-lg text-rose-600 font-bold" id="zone-4-capacity">96%</span>
-                  <span class="text-[10px] text-rose-500 block uppercase font-bold mt-0.5">FULL</span>
+                  <span class="text-[10px] text-rose-500 block uppercase font-bold mt-0.5">OVER LIMIT</span>
                 </div>
               </div>
               <div class="w-full bg-stone-200 h-2.5 rounded-full my-4 overflow-hidden">
@@ -305,7 +305,7 @@
                 <div class="flex items-center gap-2">
                   <i data-lucide="alert-circle" class="w-5 h-5"></i>
                   <div>
-                    <span class="text-xs font-bold block leading-none">AT CAPACITY</span>
+                    <span class="text-xs font-bold block leading-none">BOTTLENECK DETECTED</span>
                   </div>
                 </div>
                 <button onclick="throttleZone('Cultural Pavilion')" class="text-[10px] px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold shadow-sm">
@@ -323,7 +323,7 @@
                 </div>
                 <div class="text-right">
                   <span class="text-lg text-emerald-500 font-bold" id="zone-5-capacity">43%</span>
-                  <span class="text-[10px] text-stone-400 block uppercase font-bold mt-0.5">Capacity</span>
+                  <span class="text-[10px] text-stone-400 block uppercase font-bold mt-0.5">10m Limit</span>
                 </div>
               </div>
               <div class="w-full bg-stone-100 h-2.5 rounded-full my-4 overflow-hidden">
@@ -522,6 +522,7 @@
         });
         if (!res.ok) {
           lastSyncEl.textContent = res.status === 401 || res.status === 403 ? 'Unauthorized' : `Error ${res.status}`;
+          setOfflineState();
           return;
         }
         const data = await res.json();
@@ -541,7 +542,25 @@
         lastSyncEl.textContent = new Date().toTimeString().split(' ')[0];
       } catch (err) {
         lastSyncEl.textContent = 'Backend unreachable';
+        setOfflineState();
       }
+    }
+
+    function setOfflineState() {
+      document.getElementById('total-scans-metric').textContent = '--';
+      document.getElementById('recent-rate-metric').textContent = '--';
+      document.getElementById('active-alert-count').textContent = '--';
+      
+      zonesData.forEach(z => {
+        document.getElementById(`zone-${z.id}-capacity`).textContent = '--';
+        document.getElementById(`zone-${z.id}-total`).textContent = '--';
+        document.getElementById(`zone-${z.id}-recent`).textContent = '--';
+        document.getElementById(`zone-${z.id}-bar`).style.width = '0%';
+        document.getElementById(`zone-${z.id}-alert`).classList.add('hidden');
+        document.getElementById(`zone-card-${z.id}`).className = "glass-card p-5 rounded-2xl transition-all duration-300";
+      });
+      
+      document.getElementById('stream-log').innerHTML = '<div class="text-center p-4 text-stone-400 text-xs font-bold">FEED UNAVAILABLE</div>';
     }
 
     function timeAgo(ts) {
